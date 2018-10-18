@@ -1,45 +1,47 @@
+import utils
 import numpy as np
-import sys
 
-layers = [np.load('layer{}.npy'.format(i)) for i in range(1, 4, 1)]
-scaling_factors = [0.37, 1.25, 0.8]
-layers = [layer * s for layer, s in zip(layers, scaling_factors)]
 
-X = np.load('test_inputs.npy')
-Y = np.load('test_labels.npy')
-
-N = 10000
-seq = 200
-
-def run(spiking_input, layers):
+def forward_pass(batch_size, spiking_input, layers):
 
     threshold = 1.0
-    voltages = [np.zeros(1200), np.zeros(1200), np.zeros(10)]
+    voltages = [np.zeros((batch_size, layer.shape[1])) for layer in layers]
+    counts = np.zeros((batch_size, 10), dtype=np.int32)
 
-    counts = np.zeros(10, dtype=np.int32)
+    for i in range(spiking_input.shape[1]):
+        x = spiking_input[:, i, :]
 
-    for i in range(50):
-        x = spiking_input[i, :]
-
-        for layer_i in range(3):
-            voltages[layer_i] += x.dot(layers[layer_i])
-            x = voltages[layer_i] > threshold
-            voltages[layer_i][x] = 0.0
+        for layer, voltage in zip(layers, voltages):
+            voltage += x.dot(layer)
+            x = voltage > threshold
+            voltage[x] = 0.0
 
         counts += x
 
-    prediction = np.argmax(counts)
-    return prediction
+    predictions = np.argmax(counts, axis=1)
+    return predictions
 
-correct = 0
 
-for i in range(N):
-    x = X[i, :]
-    y = Y[i]
+def main():
+    layers = utils.load_weights()
+    X, y = utils.load_data()
 
-    spiking_input = np.random.random((200, 784)) < np.expand_dims(x, 0)
+    N = X.shape[0]
+    batch_size = 100
+    num_batches = N // batch_size
 
-    prediction = run(spiking_input, layers)
-    correct += (prediction == y)
+    seq_len = 200
 
-    print(correct / (i + 1))
+    correct = 0
+    for batch_i in range(num_batches):
+        batch_X, batch_y, end = utils.get_batch(X, y, batch_size, batch_i)
+
+        spiking_input = np.random.random((batch_size, seq_len, 784)) < batch_X
+
+        predictions = forward_pass(batch_size, spiking_input, layers)
+        correct += np.sum(predictions == batch_y)
+        print('{}/{}  Accuracy: {:.3f}'.format(correct, end, correct/end))
+
+
+if __name__ == "__main__":
+    main()
